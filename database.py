@@ -316,7 +316,7 @@ class Database:
             return voyages[0][3]
         return ""
     
-    # ---------- SUPPRESSION CLIENT (AJOUT) ----------
+    # ---------- SUPPRESSION CLIENT ----------
     def supprimer_client_complet(self, client_id):
         """Supprime un client et tous ses paiements et liaisons"""
         self.c.execute('DELETE FROM paiements WHERE client_id = ?', (client_id,))
