@@ -129,7 +129,6 @@ async def toggle_voyage(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['client']['voyages'].remove(vid)
     else:
         context.user_data['client']['voyages'].append(vid)
-    # Réafficher la liste des voyages
     await modif_champ(update, context)
 
 async def set_methode(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -142,7 +141,6 @@ async def set_methode(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def retour_formulaire(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    # Simuler un message pour réafficher le formulaire
     fake_update = type('obj', (), {'message': query.message})
     await afficher_formulaire_client(fake_update, context)
 
@@ -155,7 +153,7 @@ async def valider_client(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if 'id' in client:
-        # Mise à jour
+        # Mise à jour d'un client existant
         db.update_client(
             client['id'],
             client['nom'],
@@ -165,13 +163,13 @@ async def valider_client(update: Update, context: ContextTypes.DEFAULT_TYPE):
             client.get('montant_du', 0),
             client.get('date_limite', '')
         )
-        # Mettre à jour les voyages
+        # Mettre à jour les voyages : supprimer tous puis ajouter les nouveaux
         db.retirer_tous_voyages_client(client['id'])
         for vid in client.get('voyages', []):
             db.attribuer_voyage_client(client['id'], vid)
         await query.edit_message_text(f"✅ Client modifié (ID {client['id']})")
     else:
-        # Création
+        # Création d'un nouveau client
         cid = db.ajouter_client(
             nom=client['nom'],
             telephone=client.get('telephone', ''),
@@ -194,13 +192,13 @@ async def valider_client(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     etape = context.user_data.get('etape')
     if not etape:
+        # Si aucune étape, on ignore (mais on peut répondre pour aider)
         await update.message.reply_text("Utilisez les boutons du menu.")
         return
 
+    # Ordre important : les cas spécifiques d'abord, ensuite le générique
     if etape == 'attente_nom':
         await recevoir_nom(update, context)
-    elif etape.startswith('attente_'):
-        await recevoir_modification(update, context)
     elif etape == 'attente_montant_paiement':
         await recevoir_montant_paiement(update, context)
     elif etape == 'attente_montant_direct':
@@ -211,6 +209,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await voyage_recevoir_nom(update, context)
     elif etape == 'voyage_attente_date':
         await voyage_recevoir_date(update, context)
+    elif etape.startswith('attente_'):
+        await recevoir_modification(update, context)
     else:
         await update.message.reply_text("Action non reconnue.")
 
@@ -219,6 +219,7 @@ async def recevoir_modification(update: Update, context: ContextTypes.DEFAULT_TY
     if not champ:
         return
     valeur = update.message.text
+    # Mapping des noms de champs vers les clés du dictionnaire client
     key_map = {
         'montant': 'montant_du',
         'date': 'date_limite',
@@ -235,12 +236,11 @@ async def recevoir_modification(update: Update, context: ContextTypes.DEFAULT_TY
             await update.message.reply_text("❌ Montant invalide")
             return
     context.user_data['client'][actual_key] = valeur
-    # Si modification d'un client existant, mettre à jour en base
+    # Si on modifie un client existant, on met à jour la base directement
     if 'id' in context.user_data['client']:
         db.modifier_client(context.user_data['client']['id'], actual_key, valeur)
     context.user_data['etape'] = None
     await update.message.reply_text("✅ Mis à jour")
-    # Retour au formulaire
     await retour_formulaire_depuis_message(update, context)
 
 async def retour_formulaire_depuis_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -427,25 +427,28 @@ async def voyage_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     await query.edit_message_text(texte, reply_markup=InlineKeyboardMarkup(keyboard))
 
-async def supprimer_voyage(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def supprimer_voyage_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     vid = int(query.data.replace('supprimer_voyage_', ''))
     # Demander confirmation
     keyboard = [
-        [InlineKeyboardButton("✅ Oui", callback_data=f'confirm_supprimer_voyage_{vid}')],
-        [InlineKeyboardButton("❌ Non", callback_data=f'voyage_detail_{vid}')]
+        [InlineKeyboardButton("✅ OUI", callback_data=f'confirmer_suppression_voyage_{vid}'),
+         InlineKeyboardButton("❌ NON", callback_data=f'voyage_detail_{vid}')]
     ]
-    await query.edit_message_text("Confirmer la suppression du voyage ?", reply_markup=InlineKeyboardMarkup(keyboard))
+    await query.edit_message_text(
+        f"⚠️ Confirmer la suppression du voyage ?",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
 
-async def confirm_supprimer_voyage(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def confirmer_suppression_voyage(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    vid = int(query.data.replace('confirm_supprimer_voyage_', ''))
+    vid = int(query.data.replace('confirmer_suppression_voyage_', ''))
     db.supprimer_voyage(vid)
     await query.edit_message_text("✅ Voyage supprimé.")
-    keyboard = [[InlineKeyboardButton("✈️ VOIR VOYAGES", callback_data='voyages')]]
-    await query.message.reply_text("Retour aux voyages ?", reply_markup=InlineKeyboardMarkup(keyboard))
+    keyboard = [[InlineKeyboardButton("✈️ RETOUR VOYAGES", callback_data='voyages')]]
+    await query.message.reply_text("Retour à la liste ?", reply_markup=InlineKeyboardMarkup(keyboard))
 
 # ---------- Recherche ----------
 async def rechercher_client(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -708,8 +711,8 @@ def main():
     app.add_handler(CallbackQueryHandler(voyage_creer, pattern='^voyage_creer$'))
     app.add_handler(CallbackQueryHandler(voyage_choisir_couleur, pattern='^voyage_couleur_'))
     app.add_handler(CallbackQueryHandler(voyage_detail, pattern='^voyage_detail_'))
-    app.add_handler(CallbackQueryHandler(supprimer_voyage, pattern='^supprimer_voyage_'))
-    app.add_handler(CallbackQueryHandler(confirm_supprimer_voyage, pattern='^confirm_supprimer_voyage_'))
+    app.add_handler(CallbackQueryHandler(supprimer_voyage_callback, pattern='^supprimer_voyage_'))
+    app.add_handler(CallbackQueryHandler(confirmer_suppression_voyage, pattern='^confirmer_suppression_voyage_'))
 
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
