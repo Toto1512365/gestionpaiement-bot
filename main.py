@@ -5,7 +5,6 @@ from database import Database
 from datetime import datetime, time
 import os
 
-# Configuration
 TOKEN = os.environ.get('TOKEN')
 ADMIN_ID = 1099086639  # Remplace par ton ID
 BOT_USERNAME = "@gestionpaiementav_bot"
@@ -142,7 +141,6 @@ async def set_methode(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def retour_formulaire(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    # Simuler un message pour réafficher le formulaire
     fake_update = type('obj', (), {'message': query.message})
     await afficher_formulaire_client(fake_update, context)
 
@@ -153,50 +151,57 @@ async def valider_client(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not client.get('nom'):
         await query.edit_message_text("❌ Le nom est obligatoire")
         return
-    cid = db.ajouter_client(
-        nom=client['nom'],
-        telephone=client.get('telephone', ''),
-        email=client.get('email', ''),
-        description=client.get('description', ''),
-        montant_du=client.get('montant_du', 0),
-        date_limite=client.get('date_limite', '')
-    )
-    if client.get('methode'):
-        db.ajouter_paiement(cid, 0, client['methode'], "Méthode prévue")
-    for vid in client.get('voyages', []):
-        db.attribuer_voyage_client(cid, vid)
-    await query.edit_message_text(f"✅ Client ajouté avec ID {cid}")
+
+    if 'id' in client:
+        # Mise à jour d'un client existant
+        db.update_client(
+            client['id'],
+            client['nom'],
+            client.get('telephone', ''),
+            client.get('email', ''),
+            client.get('description', ''),
+            client.get('montant_du', 0),
+            client.get('date_limite', '')
+        )
+        # Mettre à jour les voyages : supprimer tous puis ajouter les nouveaux
+        db.retirer_tous_voyages_client(client['id'])
+        for vid in client.get('voyages', []):
+            db.attribuer_voyage_client(client['id'], vid)
+        # Note : la méthode prévue n'est pas gérée en modification pour simplifier
+        await query.edit_message_text(f"✅ Client modifié (ID {client['id']})")
+    else:
+        # Création d'un nouveau client
+        cid = db.ajouter_client(
+            nom=client['nom'],
+            telephone=client.get('telephone', ''),
+            email=client.get('email', ''),
+            description=client.get('description', ''),
+            montant_du=client.get('montant_du', 0),
+            date_limite=client.get('date_limite', '')
+        )
+        if client.get('methode'):
+            db.ajouter_paiement(cid, 0, client['methode'], "Méthode prévue")
+        for vid in client.get('voyages', []):
+            db.attribuer_voyage_client(cid, vid)
+        await query.edit_message_text(f"✅ Client ajouté avec ID {cid}")
+
     keyboard = [[InlineKeyboardButton("🔙 MENU", callback_data='menu_principal')]]
     await query.message.reply_text("Retour au menu ?", reply_markup=InlineKeyboardMarkup(keyboard))
     context.user_data.clear()
 
 # ---------- Gestion centralisée des messages texte ----------
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Dispatcher unique pour tous les messages texte."""
     etape = context.user_data.get('etape')
     if not etape:
-        # Si aucune étape, on ignore (peut-être une commande inconnue)
         await update.message.reply_text("Utilisez les boutons du menu.")
         return
 
-    # Traitement selon l'étape
     if etape == 'attente_nom':
         await recevoir_nom(update, context)
-    elif etape == 'attente_telephone':
-        await recevoir_modification(update, context)
-    elif etape == 'attente_email':
-        await recevoir_modification(update, context)
-    elif etape == 'attente_description':
-        await recevoir_modification(update, context)
-    elif etape == 'attente_montant':
-        await recevoir_modification(update, context)
-    elif etape == 'attente_date':
+    elif etape.startswith('attente_'):
         await recevoir_modification(update, context)
     elif etape == 'attente_montant_paiement':
         await recevoir_montant_paiement(update, context)
-    elif etape == 'attente_methode_paiement':
-        # Ne devrait pas arriver car c'est géré par callback
-        pass
     elif etape == 'attente_montant_direct':
         await recevoir_montant_direct(update, context)
     elif etape == 'recherche':
@@ -205,36 +210,39 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await voyage_recevoir_nom(update, context)
     elif etape == 'voyage_attente_date':
         await voyage_recevoir_date(update, context)
-    elif etape == 'voyage_attente_couleur':
-        # Ne devrait pas arriver
-        pass
     else:
         await update.message.reply_text("Action non reconnue.")
 
-# ---------- Fonctions de réception (appelées par le dispatcher) ----------
 async def recevoir_modification(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Récupérer le champ en cours
     champ = context.user_data.get('champ_en_cours')
     if not champ:
         return
     valeur = update.message.text
-    if champ == 'montant' or champ == 'montant_du':
+    # Mapping des noms de champs vers les clés du dictionnaire client
+    key_map = {
+        'montant': 'montant_du',
+        'date': 'date_limite',
+        'telephone': 'telephone',
+        'email': 'email',
+        'description': 'description',
+        'nom': 'nom'
+    }
+    actual_key = key_map.get(champ, champ)
+    if champ == 'montant':
         try:
             valeur = float(valeur)
         except ValueError:
             await update.message.reply_text("❌ Montant invalide")
             return
-    # Mettre à jour dans user_data
-    context.user_data['client'][champ] = valeur
-    # Si on modifie un client existant (présence d'un id), on met à jour la base directement
+    context.user_data['client'][actual_key] = valeur
+    # Si on modifie un client existant, on met à jour la base directement
     if 'id' in context.user_data['client']:
-        db.modifier_client(context.user_data['client']['id'], champ, valeur)
+        db.modifier_client(context.user_data['client']['id'], actual_key, valeur)
     context.user_data['etape'] = None
     await update.message.reply_text("✅ Mis à jour")
     await retour_formulaire_depuis_message(update, context)
 
 async def retour_formulaire_depuis_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Simule un callback pour réafficher le formulaire
     fake_update = type('obj', (), {
         'callback_query': type('obj', (), {
             'answer': lambda: None,
@@ -440,7 +448,7 @@ async def recevoir_recherche(update: Update, context: ContextTypes.DEFAULT_TYPE)
         texte = f"{couleur}{nom}\n💰 Reste {reste}/{montant}"
         if datelim:
             texte += f"\n📅 {datelim}"
-        keyboard = [[InlineKeyboardButton("💰 PAIEMENT", callback_data=f'payer_{cid}')]]
+        keyboard = [[InlineKeyboardButton("📋 INFOS", callback_data=f'client_detail_{cid}')]]
         await update.message.reply_text(texte, reply_markup=InlineKeyboardMarkup(keyboard))
     context.user_data['etape'] = None
 
@@ -485,12 +493,13 @@ async def client_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("💰 PAIEMENT", callback_data=f'payer_{cid}')],
         [InlineKeyboardButton("✈️ VOYAGES", callback_data=f'modif_voyages_{cid}')],
         [InlineKeyboardButton("✏️ MODIFIER", callback_data=f'modifier_client_{cid}')],
+        [InlineKeyboardButton("🏠 MENU", callback_data='menu_principal')],
     ]
     if statut == 'actif':
         keyboard.append([InlineKeyboardButton("✅ ARCHIVER", callback_data=f'archiver_{cid}')])
     else:
         keyboard.append([InlineKeyboardButton("🔄 RÉACTIVER", callback_data=f'reactiver_{cid}')])
-    keyboard.append([InlineKeyboardButton("🔙 RETOUR", callback_data='liste_clients')])
+    keyboard.append([InlineKeyboardButton("🔙 RETOUR LISTE", callback_data='liste_clients')])
     await query.edit_message_text(texte, reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def modifier_client(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -501,7 +510,6 @@ async def modifier_client(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not c:
         await query.edit_message_text("Client introuvable")
         return
-    # Charger les données dans user_data pour modification
     context.user_data['client'] = {
         'id': c[0],
         'nom': c[1],
@@ -510,10 +518,9 @@ async def modifier_client(update: Update, context: ContextTypes.DEFAULT_TYPE):
         'description': c[4] or '',
         'montant_du': c[5],
         'date_limite': c[6] or '',
-        'methode': '',  # On ne peut pas récupérer la méthode prévue facilement, on laisse vide
+        'methode': '',
         'voyages': [v[0] for v in db.get_voyages_client(cid)]
     }
-    # Réafficher le formulaire
     fake_update = type('obj', (), {'message': query.message})
     await afficher_formulaire_client(fake_update, context)
 
@@ -623,7 +630,7 @@ async def reactiver_client_callback(update: Update, context: ContextTypes.DEFAUL
     keyboard = [[InlineKeyboardButton("🔙 RETOUR", callback_data='liste_clients')]]
     await query.message.reply_text("Retour à la liste ?", reply_markup=InlineKeyboardMarkup(keyboard))
 
-# ---------- Notifications automatiques ----------
+# ---------- Notifications ----------
 async def check_paiements_imminents(context: ContextTypes.DEFAULT_TYPE):
     maintenant = datetime.now()
     clients = db.get_paiements_imminents(7)
@@ -646,10 +653,8 @@ def main():
     print("🚀 Démarrage du bot...")
     app = Application.builder().token(TOKEN).build()
 
-    # Commandes
     app.add_handler(CommandHandler("start", menu_principal))
 
-    # Callbacks généraux
     app.add_handler(CallbackQueryHandler(menu_principal, pattern='^menu_principal$'))
     app.add_handler(CallbackQueryHandler(ajouter_client, pattern='^ajouter_client$'))
     app.add_handler(CallbackQueryHandler(paiement_recu, pattern='^paiement_recu$'))
@@ -659,14 +664,12 @@ def main():
     app.add_handler(CallbackQueryHandler(prochains_paiements, pattern='^prochains_paiements$'))
     app.add_handler(CallbackQueryHandler(clients_termines, pattern='^clients_termines$'))
 
-    # Modifications client
     app.add_handler(CallbackQueryHandler(modif_champ, pattern='^modif_'))
     app.add_handler(CallbackQueryHandler(toggle_voyage, pattern='^toggle_voyage_'))
     app.add_handler(CallbackQueryHandler(set_methode, pattern='^set_methode_'))
     app.add_handler(CallbackQueryHandler(retour_formulaire, pattern='^retour_formulaire$'))
     app.add_handler(CallbackQueryHandler(valider_client, pattern='^valider_client$'))
 
-    # Détails client
     app.add_handler(CallbackQueryHandler(client_detail, pattern='^client_detail_'))
     app.add_handler(CallbackQueryHandler(payer_depuis_detail, pattern='^payer_'))
     app.add_handler(CallbackQueryHandler(methode_direct, pattern='^methode_direct_'))
@@ -674,20 +677,16 @@ def main():
     app.add_handler(CallbackQueryHandler(archiver_client_callback, pattern='^archiver_'))
     app.add_handler(CallbackQueryHandler(reactiver_client_callback, pattern='^reactiver_'))
 
-    # Paiement reçu
     app.add_handler(CallbackQueryHandler(paiement_client_selectionne, pattern='^paiement_client_'))
     app.add_handler(CallbackQueryHandler(force_montant, pattern='^force_montant_'))
     app.add_handler(CallbackQueryHandler(choisir_methode_paiement, pattern='^paiement_methode_'))
 
-    # Voyages
     app.add_handler(CallbackQueryHandler(voyage_creer, pattern='^voyage_creer$'))
     app.add_handler(CallbackQueryHandler(voyage_choisir_couleur, pattern='^voyage_couleur_'))
     app.add_handler(CallbackQueryHandler(voyage_detail, pattern='^voyage_detail_'))
 
-    # UN SEUL handler pour tous les messages texte
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    # Notifications
     job_queue = app.job_queue
     if job_queue:
         job_queue.run_daily(check_paiements_imminents, time=time(hour=9, minute=30), chat_id=ADMIN_ID)
