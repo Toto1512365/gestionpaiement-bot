@@ -108,13 +108,14 @@ async def recevoir_prenom(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['etape'] = 'ajout_nom'
 
 async def recevoir_nom(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Vérification de l'étape
     if context.user_data.get('etape') != 'ajout_nom':
         return
     
     nom = update.message.text
     context.user_data['nouveau_client']['nom'] = nom
     
-    # Créer un faux callback_query pour réutiliser la fonction
+    # Créer un faux callback_query
     class FakeQuery:
         def __init__(self, message):
             self.message = message
@@ -126,6 +127,9 @@ async def recevoir_nom(update: Update, context: ContextTypes.DEFAULT_TYPE):
     fake_update = type('obj', (), {'callback_query': FakeQuery(update.message)})
     
     await afficher_formulaire_client(fake_update, context)
+    
+    # Réinitialiser l'étape
+    context.user_data['etape'] = None
 
 # ---------- FORMULAIRE CLIENT COMPLET ----------
 async def afficher_formulaire_client(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -197,6 +201,7 @@ async def afficher_formulaire_client(update: Update, context: ContextTypes.DEFAU
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     if hasattr(update, 'callback_query') and update.callback_query:
+        # Cas normal : appel depuis un bouton
         query = update.callback_query
         await query.edit_message_text(
             f"👤 *FICHE CLIENT - {nom_complet}*\n\n"
@@ -205,6 +210,7 @@ async def afficher_formulaire_client(update: Update, context: ContextTypes.DEFAU
             parse_mode='Markdown'
         )
     elif hasattr(update, 'message') and update.message:
+        # Cas : appel depuis un message texte
         await update.message.reply_text(
             f"👤 *FICHE CLIENT - {nom_complet}*\n\n"
             "Cliquez sur chaque champ pour le modifier :",
@@ -212,7 +218,7 @@ async def afficher_formulaire_client(update: Update, context: ContextTypes.DEFAU
             parse_mode='Markdown'
         )
     else:
-        # C'est un fake_update
+        # Cas : fake_update
         await update.callback_query.edit_message_text(
             f"👤 *FICHE CLIENT - {nom_complet}*\n\n"
             "Cliquez sur chaque champ pour le modifier :",
@@ -511,7 +517,7 @@ async def voyage_recevoir_date(update: Update, context: ContextTypes.DEFAULT_TYP
             await update.message.reply_text("❌ Format incorrect. Utilisez MM/AAAA (ex: 06/2024) ou 'skip'")
             return
     
-    # AFFICHAGE DES COULEURS EXACTEMENT COMME DEMANDÉ
+    # AFFICHAGE DES COULEURS
     couleurs = ["🔴", "🟠", "🟡", "🟢", "🔵", "🟣", "🟤", "⚫", "⚪"]
     
     keyboard = []
@@ -1466,8 +1472,6 @@ def main():
     
     # Ajout client (étapes prénom/nom)
     app.add_handler(CallbackQueryHandler(ajouter_client, pattern='^menu_ajouter$'))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, recevoir_prenom))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, recevoir_nom))
     
     # Formulaire client
     app.add_handler(CallbackQueryHandler(retour_formulaire, pattern='^retour_formulaire$'))
@@ -1514,15 +1518,71 @@ def main():
     app.add_handler(CallbackQueryHandler(supprimer_client, pattern='^supprimer_client_'))
     app.add_handler(CallbackQueryHandler(delete_confirm, pattern='^delete_confirm_'))
     
-    # Messages texte (ordre important pour éviter les conflits)
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.Regex(r'^(?!.*(skip|SKIP)).*$'), voyage_recevoir_nom))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.Regex(r'^(?!.*(skip|SKIP)).*$'), voyage_recevoir_date))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, recevoir_prenom))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, recevoir_nom))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, recevoir_edit))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, recevoir_recherche))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, recevoir_montant_paiement_recu))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, recevoir_montant))
+    # Messages texte - avec filtres d'état pour éviter les conflits
+    
+    # Handler pour le prénom
+    app.add_handler(MessageHandler(
+        filters.TEXT & ~filters.COMMAND & 
+        filters.UpdateType.MESSAGES & 
+        (lambda u, c: c.user_data.get('etape') == 'ajout_prenom'), 
+        recevoir_prenom
+    ))
+    
+    # Handler pour le nom
+    app.add_handler(MessageHandler(
+        filters.TEXT & ~filters.COMMAND & 
+        filters.UpdateType.MESSAGES & 
+        (lambda u, c: c.user_data.get('etape') == 'ajout_nom'), 
+        recevoir_nom
+    ))
+    
+    # Handler pour le nom du voyage
+    app.add_handler(MessageHandler(
+        filters.TEXT & ~filters.COMMAND & 
+        filters.UpdateType.MESSAGES & 
+        (lambda u, c: c.user_data.get('etape') == 'voyage_nom'), 
+        voyage_recevoir_nom
+    ))
+    
+    # Handler pour la date du voyage
+    app.add_handler(MessageHandler(
+        filters.TEXT & ~filters.COMMAND & 
+        filters.UpdateType.MESSAGES & 
+        (lambda u, c: c.user_data.get('etape') == 'voyage_date'), 
+        voyage_recevoir_date
+    ))
+    
+    # Handler pour les éditions (tous les champs edit_)
+    app.add_handler(MessageHandler(
+        filters.TEXT & ~filters.COMMAND & 
+        filters.UpdateType.MESSAGES & 
+        (lambda u, c: c.user_data.get('etape', '').startswith('edit_')), 
+        recevoir_edit
+    ))
+    
+    # Handler pour la recherche
+    app.add_handler(MessageHandler(
+        filters.TEXT & ~filters.COMMAND & 
+        filters.UpdateType.MESSAGES & 
+        (lambda u, c: c.user_data.get('etape') == 'recherche'), 
+        recevoir_recherche
+    ))
+    
+    # Handler pour le montant paiement reçu
+    app.add_handler(MessageHandler(
+        filters.TEXT & ~filters.COMMAND & 
+        filters.UpdateType.MESSAGES & 
+        (lambda u, c: c.user_data.get('etape') == 'montant_paiement_recu'), 
+        recevoir_montant_paiement_recu
+    ))
+    
+    # Handler pour le montant paiement normal
+    app.add_handler(MessageHandler(
+        filters.TEXT & ~filters.COMMAND & 
+        filters.UpdateType.MESSAGES & 
+        (lambda u, c: c.user_data.get('etape') == 'montant_paiement'), 
+        recevoir_montant
+    ))
     
     # Planifier les vérifications automatiques à 9h30
     job_queue = app.job_queue
