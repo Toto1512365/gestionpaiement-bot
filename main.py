@@ -57,8 +57,6 @@ async def ajouter_client(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def recevoir_nom(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if context.user_data.get('etape') != 'attente_nom':
-        return
     nom = update.message.text
     context.user_data['client']['nom'] = nom
     context.user_data['etape'] = None
@@ -132,7 +130,7 @@ async def toggle_voyage(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['client']['voyages'].remove(vid)
     else:
         context.user_data['client']['voyages'].append(vid)
-    await modif_champ(update, context)  # retour à la liste des voyages
+    await modif_champ(update, context)
 
 async def set_methode(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -141,26 +139,10 @@ async def set_methode(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['client']['methode'] = methode
     await retour_formulaire(update, context)
 
-async def recevoir_modification(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.user_data.get('etape', '').startswith('attente_'):
-        return
-    champ = context.user_data['etape'].replace('attente_', '')
-    valeur = update.message.text
-    if champ == 'montant':
-        try:
-            valeur = float(valeur)
-        except:
-            await update.message.reply_text("❌ Montant invalide")
-            return
-    context.user_data['client'][champ] = valeur
-    context.user_data['etape'] = None
-    await update.message.reply_text("✅ Mis à jour")
-    await retour_formulaire(update, context)
-
 async def retour_formulaire(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    # On simule un message pour réafficher le formulaire
+    # Simuler un message pour réafficher le formulaire
     fake_update = type('obj', (), {'message': query.message})
     await afficher_formulaire_client(fake_update, context)
 
@@ -187,6 +169,80 @@ async def valider_client(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [[InlineKeyboardButton("🔙 MENU", callback_data='menu_principal')]]
     await query.message.reply_text("Retour au menu ?", reply_markup=InlineKeyboardMarkup(keyboard))
     context.user_data.clear()
+
+# ---------- Gestion centralisée des messages texte ----------
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Dispatcher unique pour tous les messages texte."""
+    etape = context.user_data.get('etape')
+    if not etape:
+        # Si aucune étape, on ignore (peut-être une commande inconnue)
+        await update.message.reply_text("Utilisez les boutons du menu.")
+        return
+
+    # Traitement selon l'étape
+    if etape == 'attente_nom':
+        await recevoir_nom(update, context)
+    elif etape == 'attente_telephone':
+        await recevoir_modification(update, context)
+    elif etape == 'attente_email':
+        await recevoir_modification(update, context)
+    elif etape == 'attente_description':
+        await recevoir_modification(update, context)
+    elif etape == 'attente_montant':
+        await recevoir_modification(update, context)
+    elif etape == 'attente_date':
+        await recevoir_modification(update, context)
+    elif etape == 'attente_montant_paiement':
+        await recevoir_montant_paiement(update, context)
+    elif etape == 'attente_methode_paiement':
+        # Ne devrait pas arriver car c'est géré par callback
+        pass
+    elif etape == 'attente_montant_direct':
+        await recevoir_montant_direct(update, context)
+    elif etape == 'recherche':
+        await recevoir_recherche(update, context)
+    elif etape == 'voyage_attente_nom':
+        await voyage_recevoir_nom(update, context)
+    elif etape == 'voyage_attente_date':
+        await voyage_recevoir_date(update, context)
+    elif etape == 'voyage_attente_couleur':
+        # Ne devrait pas arriver
+        pass
+    else:
+        await update.message.reply_text("Action non reconnue.")
+
+# ---------- Fonctions de réception (appelées par le dispatcher) ----------
+async def recevoir_modification(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Récupérer le champ en cours
+    champ = context.user_data.get('champ_en_cours')
+    if not champ:
+        return
+    valeur = update.message.text
+    if champ == 'montant' or champ == 'montant_du':
+        try:
+            valeur = float(valeur)
+        except ValueError:
+            await update.message.reply_text("❌ Montant invalide")
+            return
+    # Mettre à jour dans user_data
+    context.user_data['client'][champ] = valeur
+    # Si on modifie un client existant (présence d'un id), on met à jour la base directement
+    if 'id' in context.user_data['client']:
+        db.modifier_client(context.user_data['client']['id'], champ, valeur)
+    context.user_data['etape'] = None
+    await update.message.reply_text("✅ Mis à jour")
+    await retour_formulaire_depuis_message(update, context)
+
+async def retour_formulaire_depuis_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Simule un callback pour réafficher le formulaire
+    fake_update = type('obj', (), {
+        'callback_query': type('obj', (), {
+            'answer': lambda: None,
+            'edit_message_text': lambda text, reply_markup, parse_mode: None,
+            'message': update.message
+        })
+    })()
+    await retour_formulaire(fake_update, context)
 
 # ---------- Paiement reçu ----------
 async def paiement_recu(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -221,11 +277,9 @@ async def paiement_client_selectionne(update: Update, context: ContextTypes.DEFA
     context.user_data['etape'] = 'attente_montant_paiement'
 
 async def recevoir_montant_paiement(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if context.user_data.get('etape') != 'attente_montant_paiement':
-        return
     try:
         montant = float(update.message.text)
-    except:
+    except ValueError:
         await update.message.reply_text("❌ Montant invalide")
         return
     cid = context.user_data['paiement_cid']
@@ -299,8 +353,6 @@ async def voyage_creer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def voyage_recevoir_nom(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if context.user_data.get('etape') != 'voyage_attente_nom':
-        return
     nom = update.message.text
     context.user_data['nouveau_voyage']['nom'] = nom
     context.user_data['etape'] = 'voyage_attente_date'
@@ -311,8 +363,6 @@ async def voyage_recevoir_nom(update: Update, context: ContextTypes.DEFAULT_TYPE
     )
 
 async def voyage_recevoir_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if context.user_data.get('etape') != 'voyage_attente_date':
-        return
     texte = update.message.text
     if texte.lower() == 'skip':
         context.user_data['nouveau_voyage']['date'] = ''
@@ -376,8 +426,6 @@ async def rechercher_client(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['etape'] = 'recherche'
 
 async def recevoir_recherche(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if context.user_data.get('etape') != 'recherche':
-        return
     recherche = update.message.text
     clients = db.rechercher_client(recherche)
     if not clients:
@@ -465,7 +513,9 @@ async def modifier_client(update: Update, context: ContextTypes.DEFAULT_TYPE):
         'methode': '',  # On ne peut pas récupérer la méthode prévue facilement, on laisse vide
         'voyages': [v[0] for v in db.get_voyages_client(cid)]
     }
-    await afficher_formulaire_client(update, context)
+    # Réafficher le formulaire
+    fake_update = type('obj', (), {'message': query.message})
+    await afficher_formulaire_client(fake_update, context)
 
 # ---------- Paiement direct depuis détail ----------
 async def payer_depuis_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -493,11 +543,9 @@ async def methode_direct(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['etape'] = 'attente_montant_direct'
 
 async def recevoir_montant_direct(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if context.user_data.get('etape') != 'attente_montant_direct':
-        return
     try:
         montant = float(update.message.text)
-    except:
+    except ValueError:
         await update.message.reply_text("❌ Montant invalide")
         return
     cid = context.user_data['paiement_cid']
@@ -636,14 +684,8 @@ def main():
     app.add_handler(CallbackQueryHandler(voyage_choisir_couleur, pattern='^voyage_couleur_'))
     app.add_handler(CallbackQueryHandler(voyage_detail, pattern='^voyage_detail_'))
 
-    # Messages texte (ordre important : les plus spécifiques d'abord)
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, recevoir_nom))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, voyage_recevoir_nom))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, voyage_recevoir_date))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, recevoir_modification))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, recevoir_montant_paiement))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, recevoir_recherche))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, recevoir_montant_direct))
+    # UN SEUL handler pour tous les messages texte
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     # Notifications
     job_queue = app.job_queue
