@@ -258,7 +258,7 @@ async def paiement_recu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     keyboard = []
     for c in clients:
-        cid, nom, _, _, _, montant, _, _, _, _ = c
+        cid, nom, _, _, _, montant, datelim, statut, snooze, _ = c  # indices corrigés
         reste = montant - db.total_paye_client(cid)
         voyages = db.get_voyages_client(cid)
         couleur = voyages[0][3] if voyages else ''
@@ -272,6 +272,7 @@ async def paiement_client_selectionne(update: Update, context: ContextTypes.DEFA
     cid = int(query.data.replace('paiement_client_', ''))
     context.user_data['paiement_cid'] = cid
     client = db.get_client(cid)
+    # Indices : id(0), nom(1), tel(2), email(3), desc(4), montant(5), date_limite(6), statut(7), snooze(8), date_creation(9)
     reste = client[5] - db.total_paye_client(cid)
     context.user_data['paiement_reste'] = reste
     keyboard = [[InlineKeyboardButton("🔙 RETOUR", callback_data='paiement_recu')]]
@@ -456,7 +457,7 @@ async def voyage_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
     clients = db.get_clients_voyage(vid)
     texte = f"{v[3]}{v[1]} ({v[2] or '?'})\nClients :\n"
     for c in clients:
-        cid, nom, _, _, _, montant, _, _, _, _ = c
+        cid, nom, _, _, _, montant, _, statut, snooze, _ = c  # indices corrigés
         reste = montant - db.total_paye_client(cid)
         texte += f"  • {nom} (reste {reste})\n"
     keyboard = [
@@ -504,7 +505,7 @@ async def recevoir_recherche(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text("❌ Aucun client trouvé")
         return
     for c in clients:
-        cid, nom, tel, email, desc, montant, datelim, statut, _, _ = c
+        cid, nom, tel, email, desc, montant, datelim, statut, snooze, _ = c  # indices corrigés
         total = db.total_paye_client(cid)
         reste = montant - total
         voyages = db.get_voyages_client(cid)
@@ -525,7 +526,7 @@ async def liste_clients(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     keyboard = []
     for c in clients:
-        cid, nom, _, _, _, montant, datelim, _, _, _ = c
+        cid, nom, _, _, _, montant, datelim, statut, snooze, _ = c  # indices corrigés
         reste = montant - db.total_paye_client(cid)
         voyages = db.get_voyages_client(cid)
         couleur = voyages[0][3] if voyages else ''
@@ -541,6 +542,7 @@ async def client_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not c:
         await query.edit_message_text("Client introuvable")
         return
+    # Indices : id(0), nom(1), tel(2), email(3), desc(4), montant(5), date_limite(6), statut(7), snooze(8), date_creation(9)
     cid, nom, tel, email, desc, montant, datelim, statut, snooze, _ = c
     total = db.total_paye_client(cid)
     reste = montant - total
@@ -657,7 +659,7 @@ async def prochains_paiements(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
     texte = "💰 PROCHAINS PAIEMENTS\n"
     for c in clients:
-        cid, nom, _, _, _, montant, datelim, _, _, _ = c
+        cid, nom, _, _, _, montant, datelim, statut, snooze, _ = c  # indices corrigés
         total = db.total_paye_client(cid)
         reste = montant - total
         voyages = db.get_voyages_client(cid)
@@ -685,7 +687,7 @@ async def clients_termines(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     texte = "📁 CLIENTS TERMINÉS\n"
     for c in clients[:15]:
-        cid, nom, _, _, _, montant, _, _, _, _ = c
+        cid, nom, _, _, _, montant, _, statut, snooze, _ = c  # indices corrigés
         total = db.total_paye_client(cid)
         voyages = db.get_voyages_client(cid)
         couleur = voyages[0][3] if voyages else ''
@@ -718,11 +720,13 @@ async def check_paiements_imminents(context: ContextTypes.DEFAULT_TYPE):
     maintenant = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
     clients_a_notifier = db.get_clients_a_notifier()
     for (c, delta) in clients_a_notifier:
-        cid, nom, _, _, _, montant, datelim, _, _, _ = c
+        cid, nom, _, _, _, montant, datelim, statut, snooze, _ = c  # indices corrigés
         total = db.total_paye_client(cid)
         reste = montant - total
         voyages = db.get_voyages_client(cid)
         couleur = voyages[0][3] if voyages else ''
+        paiements = db.get_paiements_client(cid)
+        methode = paiements[0][3] if paiements else "Non définie"
         if delta < 0:
             # Retard
             jours_retard = -delta
