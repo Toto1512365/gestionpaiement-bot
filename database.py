@@ -148,6 +148,10 @@ class Database:
         self.conn.commit()
         return self.c.lastrowid
 
+    def supprimer_voyage(self, voyage_id):
+        self.c.execute('DELETE FROM voyages WHERE id = ?', (voyage_id,))
+        self.conn.commit()
+
     def get_tous_voyages(self):
         self.c.execute('SELECT * FROM voyages ORDER BY ordre DESC, date_creation DESC')
         return self.c.fetchall()
