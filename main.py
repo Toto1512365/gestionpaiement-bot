@@ -114,14 +114,18 @@ async def recevoir_nom(update: Update, context: ContextTypes.DEFAULT_TYPE):
     nom = update.message.text
     context.user_data['nouveau_client']['nom'] = nom
     
-    # Afficher le formulaire complet avec tous les boutons
-    await update.message.reply_text(
-        f"✅ Nom enregistré : *{nom}*\n\n"
-        "📋 Vous pouvez maintenant compléter les autres informations :",
-        parse_mode='Markdown'
-    )
+    # Créer un faux callback_query pour réutiliser la fonction
+    class FakeQuery:
+        def __init__(self, message):
+            self.message = message
+        async def answer(self):
+            pass
+        async def edit_message_text(self, text, reply_markup, parse_mode):
+            await self.message.reply_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
     
-    await afficher_formulaire_client(update, context)
+    fake_update = type('obj', (), {'callback_query': FakeQuery(update.message)})
+    
+    await afficher_formulaire_client(fake_update, context)
 
 # ---------- FORMULAIRE CLIENT COMPLET ----------
 async def afficher_formulaire_client(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -200,8 +204,16 @@ async def afficher_formulaire_client(update: Update, context: ContextTypes.DEFAU
             reply_markup=reply_markup,
             parse_mode='Markdown'
         )
-    else:
+    elif hasattr(update, 'message') and update.message:
         await update.message.reply_text(
+            f"👤 *FICHE CLIENT - {nom_complet}*\n\n"
+            "Cliquez sur chaque champ pour le modifier :",
+            reply_markup=reply_markup,
+            parse_mode='Markdown'
+        )
+    else:
+        # C'est un fake_update
+        await update.callback_query.edit_message_text(
             f"👤 *FICHE CLIENT - {nom_complet}*\n\n"
             "Cliquez sur chaque champ pour le modifier :",
             reply_markup=reply_markup,
@@ -323,7 +335,19 @@ async def recevoir_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['etape'] = None
     
     await update.message.reply_text("✅ Information enregistrée !")
-    await afficher_formulaire_client(update, context)
+    
+    # Créer un faux callback_query
+    class FakeQuery:
+        def __init__(self, message):
+            self.message = message
+        async def answer(self):
+            pass
+        async def edit_message_text(self, text, reply_markup, parse_mode):
+            await self.message.reply_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
+    
+    fake_update = type('obj', (), {'callback_query': FakeQuery(update.message)})
+    
+    await afficher_formulaire_client(fake_update, context)
 
 async def retour_formulaire(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -441,6 +465,7 @@ async def voyage_creer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     
     context.user_data['nouveau_voyage'] = {}
+    context.user_data['etape'] = 'voyage_nom'  # ← Important : mettre l'étape ici
     
     keyboard = [[InlineKeyboardButton("🔙 RETOUR VOYAGES", callback_data='menu_voyages')]]
     
@@ -450,7 +475,6 @@ async def voyage_creer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode='Markdown'
     )
-    context.user_data['etape'] = 'voyage_nom'
 
 async def voyage_recevoir_nom(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.user_data.get('etape') != 'voyage_nom':
@@ -1491,11 +1515,13 @@ def main():
     app.add_handler(CallbackQueryHandler(delete_confirm, pattern='^delete_confirm_'))
     
     # Messages texte (ordre important pour éviter les conflits)
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.Regex(r'^(?!.*(skip|SKIP)).*$'), voyage_recevoir_nom))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.Regex(r'^(?!.*(skip|SKIP)).*$'), voyage_recevoir_date))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, recevoir_prenom))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, recevoir_nom))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, recevoir_edit))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, recevoir_recherche))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, recevoir_montant_paiement_recu))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, voyage_recevoir_nom))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, voyage_recevoir_date))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, recevoir_montant))
     
     # Planifier les vérifications automatiques à 9h30
