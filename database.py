@@ -4,9 +4,7 @@ from datetime import datetime
 
 class Database:
     def __init__(self):
-        # Chemin pour le volume Railway
         db_path = '/app/data/clients.db'
-        # En local, on peut utiliser un chemin relatif
         if not os.path.exists('/app/data'):
             db_path = 'clients.db'
         os.makedirs(os.path.dirname(db_path), exist_ok=True)
@@ -15,7 +13,6 @@ class Database:
         self._init_db()
 
     def _init_db(self):
-        # Table clients
         self.c.execute('''
             CREATE TABLE IF NOT EXISTS clients (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -29,7 +26,6 @@ class Database:
                 date_creation TIMESTAMP
             )
         ''')
-        # Table paiements
         self.c.execute('''
             CREATE TABLE IF NOT EXISTS paiements (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -41,7 +37,6 @@ class Database:
                 FOREIGN KEY(client_id) REFERENCES clients(id) ON DELETE CASCADE
             )
         ''')
-        # Table voyages
         self.c.execute('''
             CREATE TABLE IF NOT EXISTS voyages (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -52,7 +47,6 @@ class Database:
                 date_creation TIMESTAMP
             )
         ''')
-        # Table liaison clients-voyages
         self.c.execute('''
             CREATE TABLE IF NOT EXISTS client_voyage (
                 client_id INTEGER,
@@ -65,7 +59,6 @@ class Database:
         ''')
         self.conn.commit()
 
-    # ----- Clients -----
     def ajouter_client(self, nom, telephone='', email='', description='', montant_du=0, date_limite=''):
         self.c.execute('''
             INSERT INTO clients (nom, telephone, email, description, montant_du, date_limite, date_creation, statut)
@@ -73,6 +66,14 @@ class Database:
         ''', (nom, telephone, email, description, montant_du, date_limite, datetime.now()))
         self.conn.commit()
         return self.c.lastrowid
+
+    def update_client(self, client_id, nom, telephone, email, description, montant_du, date_limite):
+        self.c.execute('''
+            UPDATE clients
+            SET nom = ?, telephone = ?, email = ?, description = ?, montant_du = ?, date_limite = ?
+            WHERE id = ?
+        ''', (nom, telephone, email, description, montant_du, date_limite, client_id))
+        self.conn.commit()
 
     def rechercher_client(self, recherche):
         self.c.execute('''
@@ -116,7 +117,6 @@ class Database:
             self.c.execute(f'UPDATE clients SET {champ} = ? WHERE id = ?', (valeur, client_id))
             self.conn.commit()
 
-    # ----- Paiements -----
     def ajouter_paiement(self, client_id, montant, methode, notes=''):
         self.c.execute('''
             INSERT INTO paiements (client_id, montant, methode, date_paiement, notes)
@@ -132,9 +132,7 @@ class Database:
         self.c.execute('SELECT COALESCE(SUM(montant), 0) FROM paiements WHERE client_id = ?', (client_id,))
         return self.c.fetchone()[0]
 
-    # ----- Voyages -----
     def ajouter_voyage(self, nom, date_voyage='', couleur='🔵'):
-        # Calcul de l'ordre pour tri chronologique
         try:
             if date_voyage and len(date_voyage) == 7:
                 mois, annee = date_voyage.split('/')
@@ -165,6 +163,10 @@ class Database:
         ''', (client_id, voyage_id, datetime.now()))
         self.conn.commit()
 
+    def retirer_tous_voyages_client(self, client_id):
+        self.c.execute('DELETE FROM client_voyage WHERE client_id = ?', (client_id,))
+        self.conn.commit()
+
     def get_voyages_client(self, client_id):
         self.c.execute('''
             SELECT v.* FROM voyages v
@@ -183,7 +185,6 @@ class Database:
         ''', (voyage_id,))
         return self.c.fetchall()
 
-    # ----- Rappels -----
     def get_paiements_imminents(self, jours=7):
         from datetime import datetime, timedelta
         now = datetime.now()
@@ -191,7 +192,7 @@ class Database:
         tous = self.get_tous_clients_actifs()
         result = []
         for c in tous:
-            date_lim = c[6]  # index de date_limite
+            date_lim = c[6]
             if date_lim:
                 try:
                     d = datetime.strptime(date_lim, '%d/%m/%Y')
