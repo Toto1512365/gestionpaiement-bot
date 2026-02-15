@@ -7,7 +7,8 @@ import pandas as pd
 from io import BytesIO
 
 # 🔐 VOTRE TOKEN
-TOKEN = "8489899130:AAFAFe3tkKUrixHokYQO_d0Pt3wkicGZX80"
+import os
+TOKEN = os.environ.get('TOKEN')
 
 # Nom d'utilisateur du bot
 BOT_USERNAME = "@gestionpaiementav_bot"
@@ -1420,7 +1421,7 @@ async def check_paiements_imminents(context: ContextTypes.DEFAULT_TYPE):
                 
                 # 👉 REMPLACEZ 123456789 PAR VOTRE ID TELEGRAM (allez sur @userinfobot)
                 await context.bot.send_message(
-                    chat_id=123456789,  # <--- CHANGEZ ICI !
+                    chat_id=int(os.environ.get('ADMIN_ID', 123456789)),  # <--- CHANGEZ ICI !
                     text=message,
                     parse_mode='Markdown'
                 )
@@ -1501,7 +1502,7 @@ def main():
     job_queue = app.job_queue
     if job_queue:
         # 👉 REMPLACEZ 123456789 PAR VOTRE ID TELEGRAM
-        job_queue.run_daily(check_paiements_imminents, time=time(hour=9, minute=30), chat_id=123456789)
+        job_queue.run_daily(check_paiements_imminents, time=time(hour=9, minute=30), chat_id=int(os.environ.get('ADMIN_ID', 123456789)))
     
     print("✅ Bot démarré !")
     print(f"📱 Allez sur Telegram et recherchez {BOT_USERNAME}")
