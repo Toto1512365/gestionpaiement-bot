@@ -3,13 +3,11 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 from database import Database
 from datetime import datetime, time
-import pandas as pd
-from io import BytesIO
 import os
 
 # ---------- CONFIGURATION ----------
 TOKEN = os.environ.get('TOKEN')
-ADMIN_ID = 1099086639  # ton ID Telegram
+ADMIN_ID = 1099086639  # Remplace par ton ID Telegram
 BOT_USERNAME = "@gestionpaiementav_bot"
 
 logging.basicConfig(level=logging.INFO)
@@ -32,9 +30,7 @@ async def menu_principal(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🔍 RECHERCHER CLIENT", callback_data='menu_rechercher')],
         [InlineKeyboardButton("📋 LISTE CLIENTS ACTIFS", callback_data='menu_liste')],
         [InlineKeyboardButton("💰 PROCHAINS PAIEMENTS", callback_data='menu_rappels')],
-        [InlineKeyboardButton("📊 STATISTIQUES", callback_data='menu_stats')],
         [InlineKeyboardButton("📁 CLIENTS TERMINÉS", callback_data='menu_termines')],
-        [InlineKeyboardButton("📤 EXPORTER DONNÉES", callback_data='menu_export')],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
@@ -55,7 +51,6 @@ async def ajouter_client(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     context.user_data.clear()
     context.user_data['nouveau_client'] = {
-        'prenom': '',
         'nom': '',
         'telephone': '',
         'email': '',
@@ -68,21 +63,7 @@ async def ajouter_client(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [[InlineKeyboardButton("🔙 RETOUR MENU", callback_data='retour_menu')]]
     await query.edit_message_text(
         "👤 *AJOUT D'UN NOUVEAU CLIENT*\n\n"
-        "✏️ ÉTAPE 1/2 - Envoyez le *prénom* du client :",
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode='Markdown'
-    )
-    context.user_data['etape'] = 'attente_prenom'
-
-async def recevoir_prenom(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if context.user_data.get('etape') != 'attente_prenom':
-        return
-    prenom = update.message.text
-    context.user_data['nouveau_client']['prenom'] = prenom
-    keyboard = [[InlineKeyboardButton("🔙 RETOUR MENU", callback_data='retour_menu')]]
-    await update.message.reply_text(
-        f"✅ Prénom enregistré : *{prenom}*\n\n"
-        "👤 ÉTAPE 2/2 - Envoyez le *nom* du client :",
+        "✏️ Envoyez le *nom complet* du client :",
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode='Markdown'
     )
@@ -105,22 +86,16 @@ async def afficher_formulaire_client(update: Update, context: ContextTypes.DEFAU
     client = context.user_data.get('nouveau_client', {})
     voyages = db.get_tous_voyages()
 
-    prenom = client.get('prenom', '')
     nom = client.get('nom', '')
-    nom_complet = f"{prenom} {nom}".strip()
 
     keyboard = []
 
-    # Prénom et Nom
-    keyboard.append([
-        InlineKeyboardButton(f"👤 Prénom: {prenom or '?'}", callback_data='modif_prenom'),
-        InlineKeyboardButton(f"👤 Nom: {nom or '?'}", callback_data='modif_nom')
-    ])
-    # Téléphone et Email
-    keyboard.append([
-        InlineKeyboardButton(f"📞 Tél: {client.get('telephone') or '?'}", callback_data='modif_telephone'),
-        InlineKeyboardButton(f"📧 Email: {client.get('email') or '?'}", callback_data='modif_email')
-    ])
+    # Nom
+    keyboard.append([InlineKeyboardButton(f"👤 Nom: {nom or '?'}", callback_data='modif_nom')])
+    # Téléphone
+    keyboard.append([InlineKeyboardButton(f"📞 Tél: {client.get('telephone') or '?'}", callback_data='modif_telephone')])
+    # Email
+    keyboard.append([InlineKeyboardButton(f"📧 Email: {client.get('email') or '?'}", callback_data='modif_email')])
     # Description
     keyboard.append([InlineKeyboardButton(f"📝 Description: {client.get('description')[:15] or '?'}", callback_data='modif_description')])
     # Montant dû
@@ -151,7 +126,7 @@ async def afficher_formulaire_client(update: Update, context: ContextTypes.DEFAU
     reply_markup = InlineKeyboardMarkup(keyboard)
 
     await update.message.reply_text(
-        f"📋 *FICHE CLIENT - {nom_complet}*\n\n"
+        f"📋 *FICHE CLIENT - {nom}*\n\n"
         "Cliquez sur les boutons pour modifier :",
         reply_markup=reply_markup,
         parse_mode='Markdown'
@@ -165,7 +140,6 @@ async def modif_champ(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['champ_en_cours'] = champ
 
     messages = {
-        'prenom': "✏️ Envoyez le nouveau *prénom* :",
         'nom': "✏️ Envoyez le nouveau *nom* :",
         'telephone': "✏️ Envoyez le nouveau *téléphone* :",
         'email': "✏️ Envoyez le nouvel *email* :",
@@ -250,7 +224,6 @@ async def recevoir_modification(update: Update, context: ContextTypes.DEFAULT_TY
 async def retour_formulaire(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    # On simule un update avec un message pour réafficher le formulaire
     fake_update = type('obj', (), {'message': query.message})
     await afficher_formulaire_client(fake_update, context)
 
@@ -258,15 +231,12 @@ async def valider_client(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     client = context.user_data.get('nouveau_client', {})
-    if not client.get('prenom') and not client.get('nom'):
-        await query.edit_message_text("❌ Le client doit avoir un prénom ou un nom !")
+    if not client.get('nom'):
+        await query.edit_message_text("❌ Le client doit avoir un nom !")
         return
-    prenom = client.get('prenom', '')
-    nom = client.get('nom', '')
-    nom_complet = f"{prenom} {nom}".strip()
+    nom = client.get('nom')
 
     client_id = db.ajouter_client(
-        prenom=prenom,
         nom=nom,
         telephone=client.get('telephone', ''),
         email=client.get('email', ''),
@@ -287,7 +257,7 @@ async def valider_client(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await query.edit_message_text(
         f"✅ Client ajouté avec succès ! ID: `{client_id}`\n\n"
-        f"{couleur}👤 {nom_complet}\n"
+        f"{couleur}👤 {nom}\n"
         f"💰 Montant dû: {client.get('montant_du', 0)}\n"
         f"💳 Méthode: {client.get('methode_paiement', 'Non définie')}",
         parse_mode='Markdown'
@@ -430,11 +400,11 @@ async def voyage_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if clients:
         texte += "Liste des clients :\n"
         for c in clients[:10]:
-            cid, prenom, cnom, _, _, _, montant, datelim, _, _ = c
+            cid, cnom, _, _, _, montant, datelim, _, _ = c
             total = db.total_paye_client(cid)
             reste = montant - total
-            texte += f"  • {prenom} {cnom} - Reste: {reste}/{montant}\n"
-            keyboard.append([InlineKeyboardButton(f"👤 {prenom} {cnom}", callback_data=f'detail_{cid}')])
+            texte += f"  • {cnom} - Reste: {reste}/{montant}\n"
+            keyboard.append([InlineKeyboardButton(f"👤 {cnom}", callback_data=f'detail_{cid}')])
     else:
         texte += "Aucun client dans ce voyage pour le moment."
 
@@ -452,14 +422,13 @@ async def paiement_recu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     texte = "💰 *ENREGISTRER UN PAIEMENT REÇU*\n\nSélectionnez le client :\n\n"
     keyboard = []
     for c in clients:
-        cid, prenom, nom, _, _, _, montant, _, _, _ = c
+        cid, nom, _, _, _, montant, _, _, _ = c
         total = db.total_paye_client(cid)
         reste = montant - total
         voyages = db.get_voyages_client(cid)
         couleur = voyages[0][3] if voyages else ""
-        nom_complet = f"{prenom} {nom}".strip()
         keyboard.append([InlineKeyboardButton(
-            f"{couleur} {nom_complet} (Reste: {reste})",
+            f"{couleur} {nom} (Reste: {reste})",
             callback_data=f'paiement_client_{cid}'
         )])
     keyboard.append([InlineKeyboardButton("🔙 RETOUR MENU", callback_data='retour_menu')])
@@ -473,12 +442,12 @@ async def paiement_client_selectionne(update: Update, context: ContextTypes.DEFA
     context.user_data['paiement_client_id'] = cid
     client = db.get_client(cid)
     total = db.total_paye_client(cid)
-    reste = client[6] - total
+    reste = client[5] - total
     context.user_data['paiement_reste'] = reste
     keyboard = [[InlineKeyboardButton("🔙 RETOUR MENU", callback_data='retour_menu')]]
     await query.edit_message_text(
         f"💰 *MONTANT DU PAIEMENT*\n\n"
-        f"Client: *{client[1]} {client[2]}*\n"
+        f"Client: *{client[1]}*\n"
         f"💰 Restant dû: *{reste}*\n\n"
         "✏️ Envoyez le montant reçu :",
         reply_markup=InlineKeyboardMarkup(keyboard),
@@ -536,10 +505,10 @@ async def choisir_methode_paiement(update: Update, context: ContextTypes.DEFAULT
     db.ajouter_paiement(cid, montant, methode)
     client = db.get_client(cid)
     total = db.total_paye_client(cid)
-    reste = client[6] - total
+    reste = client[5] - total
     await query.edit_message_text(
         f"✅ *PAIEMENT ENREGISTRÉ !*\n\n"
-        f"Client: {client[1]} {client[2]}\n"
+        f"Client: {client[1]}\n"
         f"Montant: {montant}\n"
         f"Méthode: {methode}\n"
         f"Total payé: {total}\n"
@@ -553,38 +522,222 @@ async def choisir_methode_paiement(update: Update, context: ContextTypes.DEFAULT
     )
     context.user_data.clear()
 
-# ---------- AUTRES FONCTIONS SIMPLIFIÉES ----------
+# ---------- RECHERCHE CLIENT ----------
 async def rechercher_client(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.callback_query.answer()
-    await update.callback_query.edit_message_text("🔍 Recherche (à implémenter)")
+    query = update.callback_query
+    await query.answer()
+    keyboard = [[InlineKeyboardButton("🔙 RETOUR MENU", callback_data='retour_menu')]]
+    await query.edit_message_text(
+        "🔍 *RECHERCHER UN CLIENT*\n\n"
+        "Envoyez le nom ou une partie du nom :",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode='Markdown'
+    )
+    context.user_data['etape'] = 'recherche'
 
-async def liste_clients(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.callback_query.answer()
-    clients = db.get_tous_clients_actifs()
-    if not clients:
-        await update.callback_query.edit_message_text("📭 Aucun client actif.")
+async def recevoir_recherche(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if context.user_data.get('etape') != 'recherche':
         return
-    texte = "📋 *CLIENTS ACTIFS*\n\n"
+    recherche = update.message.text
+    clients = db.rechercher_client(recherche)
+    if not clients:
+        await update.message.reply_text("❌ Aucun client trouvé.")
+        return
     for c in clients:
-        cid, prenom, nom, _, _, _, montant, date_lim, statut, _ = c
+        cid, nom, tel, email, desc, montant, datelim, statut, _ = c
         total = db.total_paye_client(cid)
         reste = montant - total
         voyages = db.get_voyages_client(cid)
         couleur = voyages[0][3] if voyages else ""
-        texte += f"{couleur} {prenom} {nom} - Reste: {reste}/{montant}\n"
-        if date_lim:
-            texte += f"   📅 {date_lim}\n"
-    await update.callback_query.edit_message_text(texte, parse_mode='Markdown')
+        texte = f"{couleur}👤 *{nom}*\n"
+        texte += f"🆔 ID: {cid}\n"
+        if tel:
+            texte += f"📞 {tel}\n"
+        texte += f"💰 Dû: {montant} | Payé: {total} | Reste: {reste}\n"
+        if datelim:
+            texte += f"📅 Limite: {datelim}\n"
+        keyboard = [
+            [InlineKeyboardButton("💰 PAIEMENT", callback_data=f'payer_{cid}')],
+            [InlineKeyboardButton("🔙 RETOUR MENU", callback_data='retour_menu')]
+        ]
+        await update.message.reply_text(texte, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+    context.user_data['etape'] = None
 
+# ---------- LISTE CLIENTS ACTIFS ----------
+async def liste_clients(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    clients = db.get_tous_clients_actifs()
+    if not clients:
+        await query.edit_message_text("📭 Aucun client actif.")
+        return
+    texte = "📋 *CLIENTS ACTIFS*\n\n"
+    keyboard = []
+    for c in clients:
+        cid, nom, _, _, _, montant, datelim, _, _ = c
+        total = db.total_paye_client(cid)
+        reste = montant - total
+        voyages = db.get_voyages_client(cid)
+        couleur = voyages[0][3] if voyages else ""
+        keyboard.append([InlineKeyboardButton(f"{couleur}👤 {nom} (Reste: {reste})", callback_data=f'detail_{cid}')])
+    keyboard.append([InlineKeyboardButton("🔙 RETOUR MENU", callback_data='retour_menu')])
+    await query.edit_message_text(texte, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+
+# ---------- DÉTAIL CLIENT ----------
+async def detail_client(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    cid = int(query.data.split('_')[1])
+    client = db.get_client(cid)
+    if not client:
+        await query.edit_message_text("❌ Client introuvable")
+        return
+    cid, nom, tel, email, desc, montant, datelim, statut, _ = client
+    total = db.total_paye_client(cid)
+    reste = montant - total
+    voyages = db.get_voyages_client(cid)
+    couleur = voyages[0][3] if voyages else ""
+    paiements = db.get_paiements_client(cid)
+
+    texte = f"{couleur}📋 *FICHE CLIENT*\n\n"
+    texte += f"👤 *{nom}*\n"
+    texte += f"🆔 ID: `{cid}`\n"
+    if tel:
+        texte += f"📞 Téléphone: {tel}\n"
+    if email:
+        texte += f"📧 Email: {email}\n"
+    if desc:
+        texte += f"📝 Description: {desc}\n"
+    if voyages:
+        texte += "✈️ *Voyages:*\n"
+        for v in voyages:
+            _, vnom, vdate, vcoul, _, _ = v
+            texte += f"  {vcoul} {vnom} ({vdate or '?'})\n"
+    texte += f"\n💰 *Montant dû:* {montant}\n"
+    texte += f"💵 *Total payé:* {total}\n"
+    texte += f"⚠️ *Reste à payer:* {reste}\n"
+    if datelim:
+        texte += f"📅 *Date limite:* {datelim}\n"
+    texte += f"✅ *Statut:* {statut}\n"
+
+    if paiements:
+        texte += f"\n📜 *Paiements:*\n"
+        for p in paiements:
+            _, _, pmontant, pmethode, pdate, pnotes = p
+            date_str = pdate[:10] if pdate else "?"
+            texte += f"  • {date_str} - {pmontant} - {pmethode}\n"
+
+    keyboard = [
+        [InlineKeyboardButton("💰 AJOUTER PAIEMENT", callback_data=f'payer_{cid}')],
+        [InlineKeyboardButton("✈️ CHANGER VOYAGE", callback_data=f'modif_voyages_depuis_detail_{cid}')],
+    ]
+    if statut == 'actif':
+        keyboard.append([InlineKeyboardButton("✅ VALIDER (Terminé)", callback_data=f'archiver_{cid}')])
+    else:
+        keyboard.append([InlineKeyboardButton("🔄 RÉACTIVER", callback_data=f'reactiver_{cid}')])
+    keyboard.append([InlineKeyboardButton("🔙 RETOUR LISTE", callback_data='menu_liste')])
+
+    await query.edit_message_text(texte, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+
+# ---------- ACTIONS SUR CLIENTS ----------
+async def payer_client(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    cid = int(query.data.split('_')[1])
+    context.user_data['paiement_client_id'] = cid
+    client = db.get_client(cid)
+    total = db.total_paye_client(cid)
+    reste = client[5] - total
+    keyboard = [[InlineKeyboardButton(m, callback_data=f'methode_{m}')] for m in METHODES_PAIEMENT]
+    keyboard.append([InlineKeyboardButton("🔙 RETOUR MENU", callback_data='retour_menu')])
+    await query.edit_message_text(
+        f"💰 *PAIEMENT*\n\nClient: *{client[1]}*\nReste: *{reste}*\n\nChoisissez la méthode :",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode='Markdown'
+    )
+
+async def methode_choisie(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    methode = query.data.replace('methode_', '')
+    context.user_data['paiement_methode'] = methode
+    keyboard = [[InlineKeyboardButton("🔙 RETOUR MENU", callback_data='retour_menu')]]
+    await query.edit_message_text(
+        f"💰 Méthode: *{methode}*\n\nEnvoyez le montant :",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode='Markdown'
+    )
+    context.user_data['etape'] = 'montant_paiement_direct'
+
+async def recevoir_montant_direct(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if context.user_data.get('etape') != 'montant_paiement_direct':
+        return
+    try:
+        montant = float(update.message.text)
+    except ValueError:
+        await update.message.reply_text("❌ Montant invalide.")
+        return
+    cid = context.user_data['paiement_client_id']
+    methode = context.user_data['paiement_methode']
+    db.ajouter_paiement(cid, montant, methode)
+    client = db.get_client(cid)
+    total = db.total_paye_client(cid)
+    reste = client[5] - total
+    await update.message.reply_text(
+        f"✅ *Paiement enregistré !*\n\n"
+        f"Client: {client[1]}\n"
+        f"Montant: {montant}\n"
+        f"Méthode: {methode}\n"
+        f"Total payé: {total}\n"
+        f"Reste: {reste}",
+        parse_mode='Markdown'
+    )
+    if reste <= 0:
+        keyboard = [
+            [InlineKeyboardButton("📦 ARCHIVER", callback_data=f'archiver_{cid}')],
+            [InlineKeyboardButton("🔙 RETOUR MENU", callback_data='retour_menu')]
+        ]
+        await update.message.reply_text(
+            "💰 Client soldé ! Voulez-vous l'archiver ?",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+    else:
+        keyboard = [[InlineKeyboardButton("🔙 RETOUR MENU", callback_data='retour_menu')]]
+        await update.message.reply_text(
+            "Retour au menu ?",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+    context.user_data.clear()
+
+async def archiver_client(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    cid = int(query.data.split('_')[1])
+    db.archiver_client(cid)
+    await query.edit_message_text("✅ Client archivé.")
+    keyboard = [[InlineKeyboardButton("🔙 RETOUR MENU", callback_data='retour_menu')]]
+    await query.message.reply_text("Retour au menu ?", reply_markup=InlineKeyboardMarkup(keyboard))
+
+async def reactiver_client(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    cid = int(query.data.split('_')[1])
+    db.reactiver_client(cid)
+    await query.edit_message_text("✅ Client réactivé.")
+    keyboard = [[InlineKeyboardButton("🔙 RETOUR MENU", callback_data='retour_menu')]]
+    await query.message.reply_text("Retour au menu ?", reply_markup=InlineKeyboardMarkup(keyboard))
+
+# ---------- PROCHAINS PAIEMENTS ----------
 async def prochains_paiements(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.callback_query.answer()
+    query = update.callback_query
+    await query.answer()
     clients = db.get_paiements_imminents(30)
     if not clients:
-        await update.callback_query.edit_message_text("✅ Aucun paiement imminent.")
+        await query.edit_message_text("✅ Aucun paiement imminent.")
         return
     texte = "💰 *PROCHAINS PAIEMENTS*\n\n"
     for c in clients:
-        cid, prenom, nom, _, _, _, montant, date_lim, _, _ = c
+        cid, nom, _, _, _, montant, datelim, _, _ = c
         total = db.total_paye_client(cid)
         reste = montant - total
         paiements = db.get_paiements_client(cid)
@@ -592,7 +745,7 @@ async def prochains_paiements(update: Update, context: ContextTypes.DEFAULT_TYPE
         voyages = db.get_voyages_client(cid)
         couleur = voyages[0][3] if voyages else ""
         try:
-            jours = (datetime.strptime(date_lim, '%d/%m/%Y') - datetime.now()).days
+            jours = (datetime.strptime(datelim, '%d/%m/%Y') - datetime.now()).days
             if jours < 0:
                 urgence = "🔴 EN RETARD"
             elif jours == 0:
@@ -601,62 +754,34 @@ async def prochains_paiements(update: Update, context: ContextTypes.DEFAULT_TYPE
                 urgence = f"📅 Dans {jours}j"
         except:
             urgence = "Date invalide"
-        texte += f"{couleur}*{prenom} {nom}*\n{urgence}\n💰 Reste: {reste}/{montant}\n💳 {methode}\n📅 {date_lim}\n━━━━━━━━━━\n"
-    await update.callback_query.edit_message_text(texte, parse_mode='Markdown')
+        texte += f"{couleur}*{nom}*\n{urgence}\n💰 Reste: {reste}/{montant}\n💳 {methode}\n📅 {datelim}\n━━━━━━━━━━\n"
+    keyboard = [[InlineKeyboardButton("🔙 RETOUR MENU", callback_data='retour_menu')]]
+    await query.edit_message_text(texte, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
 
-async def statistiques(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.callback_query.answer()
-    stats = db.get_statistiques()
-    texte = "📊 *STATISTIQUES*\n\n"
-    texte += f"💰 Total encaissé : {stats['total_global']}\n"
-    texte += f"📅 Ce mois-ci : {stats['ce_mois']}\n"
-    texte += f"👥 Clients actifs : {stats['clients_actifs']}\n"
-    texte += f"📁 Clients terminés : {stats['clients_termines']}\n\n"
-    texte += "Par méthode :\n"
-    for m, montant in stats['par_methode'].items():
-        if montant > 0:
-            texte += f"  {m} : {montant}\n"
-    await update.callback_query.edit_message_text(texte, parse_mode='Markdown')
-
+# ---------- CLIENTS TERMINÉS ----------
 async def clients_termines(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.callback_query.answer()
+    query = update.callback_query
+    await query.answer()
     clients = db.get_clients_termines()
     if not clients:
-        await update.callback_query.edit_message_text("📭 Aucun client terminé.")
+        await query.edit_message_text("📭 Aucun client terminé.")
         return
     texte = "📁 *CLIENTS TERMINÉS*\n\n"
     for c in clients[:15]:
-        cid, prenom, nom, _, _, _, montant, _, _, _ = c
+        cid, nom, _, _, _, montant, _, _, _ = c
         total = db.total_paye_client(cid)
-        texte += f"• {prenom} {nom} - Payé: {total}/{montant}\n"
-    await update.callback_query.edit_message_text(texte, parse_mode='Markdown')
-
-async def export(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.callback_query.answer()
-    await update.callback_query.edit_message_text("📤 Génération de l'export...")
-    df_c, df_p, df_h, df_v = db.export_donnees()
-    with BytesIO() as output:
-        with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            df_c.to_excel(writer, sheet_name='Clients', index=False)
-            df_p.to_excel(writer, sheet_name='Paiements', index=False)
-            df_h.to_excel(writer, sheet_name='Historique', index=False)
-            df_v.to_excel(writer, sheet_name='Voyages', index=False)
-        output.seek(0)
-        await update.effective_chat.send_document(
-            document=output,
-            filename=f'export_{datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx'
-        )
-    await update.effective_chat.send_message(
-        "✅ Export terminé !",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 RETOUR MENU", callback_data='retour_menu')]])
-    )
+        voyages = db.get_voyages_client(cid)
+        couleur = voyages[0][3] if voyages else ""
+        texte += f"• {couleur}{nom} - Payé: {total}/{montant}\n"
+    keyboard = [[InlineKeyboardButton("🔙 RETOUR MENU", callback_data='retour_menu')]]
+    await query.edit_message_text(texte, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
 
 # ---------- NOTIFICATIONS ----------
 async def check_paiements_imminents(context: ContextTypes.DEFAULT_TYPE):
     maintenant = datetime.now()
     clients = db.get_paiements_imminents(7)
     for c in clients:
-        cid, prenom, nom, _, _, _, montant, date_lim, _, _ = c
+        cid, nom, _, _, _, montant, datelim, _, _ = c
         total = db.total_paye_client(cid)
         reste = montant - total
         paiements = db.get_paiements_client(cid)
@@ -664,13 +789,13 @@ async def check_paiements_imminents(context: ContextTypes.DEFAULT_TYPE):
         voyages = db.get_voyages_client(cid)
         couleur = voyages[0][3] if voyages else ""
         try:
-            jours = (datetime.strptime(date_lim, '%d/%m/%Y') - maintenant).days
+            jours = (datetime.strptime(datelim, '%d/%m/%Y') - maintenant).days
             if 0 <= jours <= 7:
                 message = (f"⏰ *RAPPEL - {jours} JOURS*\n\n"
-                           f"{couleur}👤 {prenom} {nom}\n"
+                           f"{couleur}👤 {nom}\n"
                            f"💰 Reste: {reste}/{montant}\n"
                            f"💳 Méthode: {methode}\n"
-                           f"📅 Limite: {date_lim}")
+                           f"📅 Limite: {datelim}")
                 await context.bot.send_message(chat_id=ADMIN_ID, text=message, parse_mode='Markdown')
         except:
             continue
@@ -711,21 +836,27 @@ def main():
     app.add_handler(CallbackQueryHandler(force_montant, pattern='^force_montant_'))
     app.add_handler(CallbackQueryHandler(choisir_methode_paiement, pattern='^paiement_methode_'))
 
-    # Autres menus
+    # Recherche et listes
     app.add_handler(CallbackQueryHandler(rechercher_client, pattern='^menu_rechercher$'))
     app.add_handler(CallbackQueryHandler(liste_clients, pattern='^menu_liste$'))
     app.add_handler(CallbackQueryHandler(prochains_paiements, pattern='^menu_rappels$'))
-    app.add_handler(CallbackQueryHandler(statistiques, pattern='^menu_stats$'))
     app.add_handler(CallbackQueryHandler(clients_termines, pattern='^menu_termines$'))
-    app.add_handler(CallbackQueryHandler(export, pattern='^menu_export$'))
+
+    # Détails client
+    app.add_handler(CallbackQueryHandler(detail_client, pattern='^detail_'))
+    app.add_handler(CallbackQueryHandler(payer_client, pattern='^payer_'))
+    app.add_handler(CallbackQueryHandler(methode_choisie, pattern='^methode_'))
+    app.add_handler(CallbackQueryHandler(archiver_client, pattern='^archiver_'))
+    app.add_handler(CallbackQueryHandler(reactiver_client, pattern='^reactiver_'))
 
     # Messages texte
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, recevoir_prenom))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, recevoir_nom))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, voyage_recevoir_nom))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, voyage_recevoir_date))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, recevoir_modification))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, recevoir_montant_paiement))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, recevoir_recherche))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, recevoir_montant_direct))
 
     # Notifications
     job_queue = app.job_queue
