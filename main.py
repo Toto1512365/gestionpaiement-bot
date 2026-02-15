@@ -7,7 +7,7 @@ import os
 
 # Configuration
 TOKEN = os.environ.get('TOKEN')
-ADMIN_ID = 1099086639  # Remplace par ton ID Telegram
+ADMIN_ID = 1099086639  # Remplace par ton ID
 BOT_USERNAME = "@gestionpaiementav_bot"
 
 logging.basicConfig(level=logging.INFO)
@@ -281,7 +281,8 @@ async def voyages(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for v in voyages:
         vid, nom, datev, couleur, _, _ = v
         clients = db.get_clients_voyage(vid)
-        texte += f"{couleur}{nom} ({datev or '?'}) - {len(clients)} client(s)\n"
+        nb = len(clients)
+        texte += f"{couleur}{nom} ({datev or '?'}) - {nb} client(s)\n"
         keyboard.append([InlineKeyboardButton(f"{couleur}{nom}", callback_data=f'voyage_detail_{vid}')])
     keyboard.append([InlineKeyboardButton("➕ CRÉER", callback_data='voyage_creer')])
     keyboard.append([InlineKeyboardButton("🔙 RETOUR", callback_data='menu_principal')])
@@ -435,6 +436,7 @@ async def client_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("💰 PAIEMENT", callback_data=f'payer_{cid}')],
         [InlineKeyboardButton("✈️ VOYAGES", callback_data=f'modif_voyages_{cid}')],
+        [InlineKeyboardButton("✏️ MODIFIER", callback_data=f'modifier_client_{cid}')],
     ]
     if statut == 'actif':
         keyboard.append([InlineKeyboardButton("✅ ARCHIVER", callback_data=f'archiver_{cid}')])
@@ -443,6 +445,29 @@ async def client_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard.append([InlineKeyboardButton("🔙 RETOUR", callback_data='liste_clients')])
     await query.edit_message_text(texte, reply_markup=InlineKeyboardMarkup(keyboard))
 
+async def modifier_client(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    cid = int(query.data.replace('modifier_client_', ''))
+    c = db.get_client(cid)
+    if not c:
+        await query.edit_message_text("Client introuvable")
+        return
+    # Charger les données dans user_data pour modification
+    context.user_data['client'] = {
+        'id': c[0],
+        'nom': c[1],
+        'telephone': c[2] or '',
+        'email': c[3] or '',
+        'description': c[4] or '',
+        'montant_du': c[5],
+        'date_limite': c[6] or '',
+        'methode': '',  # On ne peut pas récupérer la méthode prévue facilement, on laisse vide
+        'voyages': [v[0] for v in db.get_voyages_client(cid)]
+    }
+    await afficher_formulaire_client(update, context)
+
+# ---------- Paiement direct depuis détail ----------
 async def payer_depuis_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -597,6 +622,7 @@ def main():
     app.add_handler(CallbackQueryHandler(client_detail, pattern='^client_detail_'))
     app.add_handler(CallbackQueryHandler(payer_depuis_detail, pattern='^payer_'))
     app.add_handler(CallbackQueryHandler(methode_direct, pattern='^methode_direct_'))
+    app.add_handler(CallbackQueryHandler(modifier_client, pattern='^modifier_client_'))
     app.add_handler(CallbackQueryHandler(archiver_client_callback, pattern='^archiver_'))
     app.add_handler(CallbackQueryHandler(reactiver_client_callback, pattern='^reactiver_'))
 
@@ -610,7 +636,7 @@ def main():
     app.add_handler(CallbackQueryHandler(voyage_choisir_couleur, pattern='^voyage_couleur_'))
     app.add_handler(CallbackQueryHandler(voyage_detail, pattern='^voyage_detail_'))
 
-    # Messages texte
+    # Messages texte (ordre important : les plus spécifiques d'abord)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, recevoir_nom))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, voyage_recevoir_nom))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, voyage_recevoir_date))
