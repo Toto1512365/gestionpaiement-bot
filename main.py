@@ -89,8 +89,11 @@ async def ajouter_client(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['etape'] = 'ajout_prenom'
 
 async def recevoir_prenom(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Vérification de l'étape
     if context.user_data.get('etape') != 'ajout_prenom':
         return
+    
+    # ... reste du code
     
     prenom = update.message.text
     context.user_data['nouveau_client']['prenom'] = prenom
@@ -111,6 +114,10 @@ async def recevoir_nom(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Vérification de l'étape
     if context.user_data.get('etape') != 'ajout_nom':
         return
+    
+    # ... reste du code
+    # À la fin, après avoir affiché le formulaire :
+    context.user_data['etape'] = None
     
     nom = update.message.text
     context.user_data['nouveau_client']['nom'] = nom
@@ -313,8 +320,12 @@ async def set_methode(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await afficher_formulaire_client(update, context)
 
 async def recevoir_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if 'etape' not in context.user_data:
+    # Vérification de l'étape
+    etape = context.user_data.get('etape', '')
+    if not etape.startswith('edit_'):
         return
+    
+    # ... reste du code
     
     etape = context.user_data['etape']
     texte = update.message.text
@@ -483,8 +494,11 @@ async def voyage_creer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def voyage_recevoir_nom(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Vérification de l'étape
     if context.user_data.get('etape') != 'voyage_nom':
         return
+    
+    # ... reste du code
     
     nom = update.message.text
     context.user_data['nouveau_voyage']['nom'] = nom
@@ -503,8 +517,13 @@ async def voyage_recevoir_nom(update: Update, context: ContextTypes.DEFAULT_TYPE
     context.user_data['etape'] = 'voyage_date'
 
 async def voyage_recevoir_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Vérification de l'étape
     if context.user_data.get('etape') != 'voyage_date':
         return
+    
+    # ... reste du code
+    # À la fin, après avoir affiché les couleurs :
+    context.user_data['etape'] = 'voyage_couleur'
     
     date_texte = update.message.text
     
@@ -1518,69 +1537,53 @@ def main():
     app.add_handler(CallbackQueryHandler(supprimer_client, pattern='^supprimer_client_'))
     app.add_handler(CallbackQueryHandler(delete_confirm, pattern='^delete_confirm_'))
     
-    # Messages texte - avec filtres d'état pour éviter les conflits
+    # ---------- MESSAGES TEXTE - AVEC FILTRES SIMPLES ----------
     
-    # Handler pour le prénom
+    # Handler pour le prénom (ajout_prenom)
     app.add_handler(MessageHandler(
-        filters.TEXT & ~filters.COMMAND & 
-        filters.UpdateType.MESSAGES & 
-        (lambda u, c: c.user_data.get('etape') == 'ajout_prenom'), 
+        filters.TEXT & ~filters.COMMAND,
         recevoir_prenom
     ))
     
-    # Handler pour le nom
+    # Handler pour le nom (ajout_nom)
     app.add_handler(MessageHandler(
-        filters.TEXT & ~filters.COMMAND & 
-        filters.UpdateType.MESSAGES & 
-        (lambda u, c: c.user_data.get('etape') == 'ajout_nom'), 
+        filters.TEXT & ~filters.COMMAND,
         recevoir_nom
     ))
     
-    # Handler pour le nom du voyage
+    # Handler pour le nom du voyage (voyage_nom)
     app.add_handler(MessageHandler(
-        filters.TEXT & ~filters.COMMAND & 
-        filters.UpdateType.MESSAGES & 
-        (lambda u, c: c.user_data.get('etape') == 'voyage_nom'), 
+        filters.TEXT & ~filters.COMMAND,
         voyage_recevoir_nom
     ))
     
-    # Handler pour la date du voyage
+    # Handler pour la date du voyage (voyage_date)
     app.add_handler(MessageHandler(
-        filters.TEXT & ~filters.COMMAND & 
-        filters.UpdateType.MESSAGES & 
-        (lambda u, c: c.user_data.get('etape') == 'voyage_date'), 
+        filters.TEXT & ~filters.COMMAND,
         voyage_recevoir_date
     ))
     
-    # Handler pour les éditions (tous les champs edit_)
+    # Handler pour les éditions (edit_)
     app.add_handler(MessageHandler(
-        filters.TEXT & ~filters.COMMAND & 
-        filters.UpdateType.MESSAGES & 
-        (lambda u, c: c.user_data.get('etape', '').startswith('edit_')), 
+        filters.TEXT & ~filters.COMMAND,
         recevoir_edit
     ))
     
     # Handler pour la recherche
     app.add_handler(MessageHandler(
-        filters.TEXT & ~filters.COMMAND & 
-        filters.UpdateType.MESSAGES & 
-        (lambda u, c: c.user_data.get('etape') == 'recherche'), 
+        filters.TEXT & ~filters.COMMAND,
         recevoir_recherche
     ))
     
     # Handler pour le montant paiement reçu
     app.add_handler(MessageHandler(
-        filters.TEXT & ~filters.COMMAND & 
-        filters.UpdateType.MESSAGES & 
-        (lambda u, c: c.user_data.get('etape') == 'montant_paiement_recu'), 
+        filters.TEXT & ~filters.COMMAND,
         recevoir_montant_paiement_recu
     ))
     
     # Handler pour le montant paiement normal
     app.add_handler(MessageHandler(
-        filters.TEXT & ~filters.COMMAND & 
-        filters.UpdateType.MESSAGES & 
-        (lambda u, c: c.user_data.get('etape') == 'montant_paiement'), 
+        filters.TEXT & ~filters.COMMAND,
         recevoir_montant
     ))
     
